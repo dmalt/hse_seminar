@@ -1,15 +1,16 @@
-function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nTr, GainSVDTh, InducedScale, EvokedScale) 
+function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nTr, GainSVDTh, InducedScale, EvokedScale, isUseCache) 
 % --------------------------------------------------------------------------
 % Generate forward model and cross-spectrum on sensors for simulations
 % --------------------------------------------------------------------------
 % FORMAT:
-%   [HM, CrossSpecTime, Trials, Ctx] = SimulateData(PhaseLag, nTr, GainSVDTh,  InducedScale, EvokedScale)
+%   [HM, CrossSpecTime, Trials, Ctx] = SimulateData(PhaseLag, InducedScale, EvokedScale)
 % INPUTS:
 %   PhaseLag          - phase lag for simulations
-%   nTr               - int; number of trials to generate
-%   GainSVDTh         - float; dimensionality shrinkage threshold
+%   nTr
+%   GainSVDTh
 %   InducedScale      - coefficient for induced activity (default = 0.35)
 %   EvokedScale       - coefficient for evoked activity (default = 0)
+%   isUseCache
 % OUTPUTS:
 %   HM_ps             - structure; forward model operator 
 %                       for reduced sensor space and additional
@@ -28,12 +29,18 @@ function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nT
 %   CrossSpecTime     - {nSensors ^ 2 x nTimes} matrix of cross-spectrum on sensors
 %   Trials            - {nSensors_reduced x nTimes x nTrials} matrix of trials
 %                       timeseries
-%   Ctx               - structure containing brain surface
-%   XYZGenOut         - 
 % ______________________________________________________________________________
 % Alex Ossadtchi, ossadtchi@gmail; Dmitrii Altukhov, dm.altukhov@ya.ru
 
+    import ups.PickChannels
+    import ups.ReduceToTangentSpace
+    import ups.CrossSpectralTimeseries
+    import ups.spm_svd
+
     % --------- set up defaults --------- %
+    if nargin < 6    
+        isUseCache = true;
+    end
     if nargin < 5
         EvokedScale = 0.;
     end   
@@ -52,6 +59,31 @@ function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nT
     if nargin < 5 - 3
         nTr = 100;
     end
+    % ----------------------------------- %
+    % ---- check if cache folder is there --- %
+    % ----------if no - create one ---------- %
+    fname = mfilename('fullpath');
+    mpath = fileparts(fname);
+    cache_fold =  [mpath, '/../Simulations_cache'];
+    if ~exist(cache_fold, 'dir')
+        mkdir(cache_fold);
+    end
+    cache_fname = ...
+    [
+       'pl_',      num2str(PhaseLag),     ...
+       '_ntr_',    num2str(nTr),          ...
+       '_gsvdth_', num2str(GainSVDTh),    ...
+       '_is_',     num2str(InducedScale), ...
+       '_es_',     num2str(EvokedScale)
+   ];
+   cache_fname = [cache_fold, '/', cache_fname, '.mat'];
+
+    % --------------------------------------- %
+
+
+    if exist(cache_fname, 'file') && isUseCache
+        load(cache_fname);
+    else
         phi = PhaseLag;
         % GainSVDTh = 0.001; /
         NetworkPairIndex{1} = [1,2];
@@ -111,7 +143,7 @@ function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nT
                 % we will use the same phase shifts in the second and subsequent
                 % iterations. We will store the random phases in PhaseShifts 
                 [Evoked, Induced, BrainNoise, Ctx, ~, ~, ~, ~, XYZGenOut] = ...
-                SimulateDataPhase(nTr, NetworkPairIndex{2}, phi, true, [], XYZGen);
+                SimulateDataPhase(nTr, NetworkPairIndex{2}, phi, true,  [],          XYZGen);
             else
                 % and use PhaseShits from the first iteration
                 [Evoked, Induced, BrainNoise, Ctx, ~, ~, ~, ~, XYZGenOut] = ...
@@ -158,6 +190,8 @@ function [HM, CrossSpecTime, Trials, Ctx, XYZGenOut] = SimulateData(PhaseLag, nT
             % Data_clear_p = ProjOut(CrossSpecClData, G2dU);
             % it = it + 1;
         % end;
+        save(cache_fname, 'HM', 'CrossSpecTime', 'Trials', 'Ctx', '-v7.3');
+    end
 
 end
 
@@ -249,7 +283,7 @@ function [Evoked, Induced, BrainNoise, Ctx, SensorNoise, G2d, R, Fs, XYZGenOut, 
     bUsePhases = ~isempty(PhaseShiftsIn);
 
     if(nargin < 7)
-        alpha = 0.2;
+        alpha = 1.;
     else
         alpha = alpha_in;
     end;
@@ -281,8 +315,7 @@ function [Evoked, Induced, BrainNoise, Ctx, SensorNoise, G2d, R, Fs, XYZGenOut, 
         d = sum(d .* d, 2);
         [~, ind] = min(d);
         XYZGenAct(i,:) = R(ind,:);
-        Ggen(:,i,1) = G2d(:, ind * 2 - 1); % take the first dipole in the tangent plane
-        Ggen(:,i,2) = G2d(:, ind * 2    ); % take the second dipole in the tangent plane
+        Ggen(:,i) = G2d(:,ind * 2 - 1); % take the first dipole in the tangent plane
         GenInd(i) = ind; 
     end;
 % 3333333333333333333333333333333333333333333333333333333333333333333333333333333 %
@@ -380,38 +413,17 @@ function [Evoked, Induced, BrainNoise, Ctx, SensorNoise, G2d, R, Fs, XYZGenOut, 
         e(2,:) = exp(-15 * (t - 0.2) .^ 2) .* cos(2 * pi * 8 * t + 0.8 * (rand - 0.5) * pi);
         
         % collect activity from the selected networks
-        induced = zeros(nCh, T);
-        Ggen_fixed = zeros(nCh, 2);
+        induced = zeros(nCh,T);
         for n = NetworkPairIndex
-            ini_phase1 = rand * 2 * pi;
-            ini_phase2 = rand * 2 * pi;
-
-            for i_time = 1:T
-                rotation_phase1 = i_time / T * 2 * pi * 9 ;%+ ini_phase1;
-                % rotation_phase1 = ini_phase1;
-                rotation_phase2 = i_time / T * 2 * pi * 9 ;%+ ini_phase2;
-                % rotation_phase2 = ini_phase2;
-                % rotation_phase = i_time; 
-                % rotation_phase =  rand * 2 * pi;
-                % rotation_phase =  tr / 100 * 2 * pi + n;
-                % rotation_phase = i_time / T *  pi + tr;
-                Ggen_fixed(:,1) = Ggen(:,nwp{n}(1),1) * cos(rotation_phase1) + ...
-                                  Ggen(:,nwp{n}(1),2) * sin(rotation_phase1);
-
-                Ggen_fixed(:,2) = Ggen(:,nwp{n}(2),1) * cos(rotation_phase2) + ...
-                                  Ggen(:,nwp{n}(2),2) * sin(rotation_phase2);
-
-                a(:, i_time) = Ggen_fixed * s{n}(:,i_time);
-            end
-
-            a = a / norm(a(:));   
+             a = Ggen(:,nwp{n}) * s{n};
+             a = a / norm(a(:));   
             induced = induced + a;
         end;
         induced = induced/sqrt(sum((induced(:).^2)));
         Induced(:, range) = induced;
         
         evoked = zeros(nCh,T);
-        evoked = Ggen(:,[2,4]) * e;
+        evoked = Ggen(:,[2,4])*e;
         evoked = evoked/sqrt(sum(evoked(:).^2));
         Evoked(:, range) = evoked;
         
