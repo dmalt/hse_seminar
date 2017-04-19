@@ -1,7 +1,7 @@
 function [SPC, TPR, PPV] = GenerateScores(Q, Dmax, R, IND, N, XYZGen, NPI)
 % ------------------------------------------------------------------------
 % Generate specificity, true positive rate and positive predictive value
-% for connectivity estimation algorithm gradually lowering threshold.
+% for connectivity estimation algorithm by gradually lowering threshold.
 % Usually used for calculation of ROC or Precision-Recall curves
 % ------------------------------------------------------------------------
 % FORMAT:
