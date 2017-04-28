@@ -12,5 +12,5 @@ How does phase lag affect DICS and iDICS performance?
 
 #### Questions
 1.What changes in DICS performance when phase shift increases from 0 to pi/2? What about iDICS?
+
 2.Which of the two algorithms shows better overall performance? Explain the observed result.
-###
