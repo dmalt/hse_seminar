@@ -27,3 +27,6 @@ https://github.com/dmalt/hse_seminar/blob/master/pres.pdf
 1.What changes in DICS performance when phase shift increases from 0 to pi/2? What about iDICS?
 
 2.Which of the two algorithms shows better overall performance? Explain the observed result.
+
+
+#### Send your answers to dm.altukhov@ya.ru
