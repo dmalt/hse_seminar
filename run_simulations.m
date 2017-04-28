@@ -16,7 +16,7 @@ NPI = [1,2,3];
 
 
 
-[HM, CT, Trials, Ctx, XYZGenAct] = SimulateData(PhaseLag, n_trials, GainSVDTh,...
+[HM, CT, Trials, Ctx, XYZGenAct] = SimulateData(phase_lag, n_trials, gain_svd_th,...
                                                 InducedScale, EvokedScale);
 
 
